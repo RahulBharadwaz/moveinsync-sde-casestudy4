@@ -1,31 +1,24 @@
 package com.moveinsync.tripfanout.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.moveinsync.tripfanout.model.Event;
-import com.moveinsync.tripfanout.model.HydrationResult;
-import com.moveinsync.tripfanout.model.TopicSnapshot;
+import com.moveinsync.tripfanout.model.*;
+import com.moveinsync.tripfanout.repository.TopicStateRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Service for hydrating reconnecting subscribers.
  * Replays missed events in order if within the bounded buffer; otherwise hydrates with full current state snapshot.
+ * Coordinates with TopicStateRepository.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class StateHydrationService {
 
-    private final StringRedisTemplate redisTemplate;
-    private final ObjectMapper objectMapper;
+    private final TopicStateRepository repository;
 
     /**
      * Hydrate a client resuming subscription on a topic.
@@ -50,9 +43,7 @@ public class StateHydrationService {
             throw new IllegalArgumentException("Topic cannot be blank");
         }
 
-        String seqKey = EventSequencingService.getSequenceKey(topic);
-        String seqStr = redisTemplate.opsForValue().get(seqKey);
-        long currentSeq = (seqStr != null) ? Long.parseLong(seqStr) : 0L;
+        long currentSeq = repository.getCurrentSequence(topic);
 
         // 1. Topic has no events yet
         if (currentSeq == 0) {
@@ -65,20 +56,13 @@ public class StateHydrationService {
         }
 
         // 3. Inspect bounded buffer
-        String bufferKey = EventSequencingService.getBufferKey(topic);
-        Set<ZSetOperations.TypedTuple<String>> minTuples = redisTemplate.opsForZSet().rangeWithScores(bufferKey, 0, 0);
-
-        if (minTuples == null || minTuples.isEmpty()) {
-            // Buffer is empty even though currentSeq > 0 (e.g. purged), client must get snapshot
+        Long minSeq = repository.getBufferMinSequence(topic);
+        if (minSeq == null) {
             log.info("Buffer empty for topic {}, falling back to full snapshot hydration", topic);
             return HydrationResult.snapshot(topic, lastSequenceNumber, currentSeq, getSnapshot(topic));
         }
 
-        Double minScore = minTuples.iterator().next().getScore();
-        long minSeq = (minScore != null) ? minScore.longValue() : 0L;
-
         // 4. Check if the next event the client needs (lastSequenceNumber + 1) has been evicted
-        // i.e. lastSequenceNumber < minSeq - 1
         if (lastSequenceNumber < minSeq - 1) {
             log.info("Client requested seq {} on topic {}, but buffer min seq is {}. Evicted! Hydrating snapshot.",
                     lastSequenceNumber, topic, minSeq);
@@ -87,22 +71,11 @@ public class StateHydrationService {
         }
 
         // 5. In-buffer replay: Fetch all missed events in score (sequence) order
-        Set<String> eventJsons = redisTemplate.opsForZSet().rangeByScore(
-                bufferKey,
-                (double) (lastSequenceNumber + 1),
-                Double.POSITIVE_INFINITY
+        List<Event> missedEvents = repository.getBufferRange(
+                topic,
+                lastSequenceNumber + 1,
+                Long.MAX_VALUE
         );
-
-        List<Event> missedEvents = new ArrayList<>();
-        if (eventJsons != null) {
-            for (String json : eventJsons) {
-                try {
-                    missedEvents.add(objectMapper.readValue(json, Event.class));
-                } catch (Exception e) {
-                    log.error("Failed to deserialize buffered event JSON for topic {}", topic, e);
-                }
-            }
-        }
 
         // Apply in-place location conflation if requested (e.g. 40-second lift use case)
         if (conflateLocations && !missedEvents.isEmpty()) {
@@ -120,7 +93,6 @@ public class StateHydrationService {
      * status transitions and SOS emergency alerts in sequence order.
      */
     private List<Event> conflateReplayLocations(List<Event> events) {
-        // Map cab -> highest sequence number location event
         Map<String, LocationEvent> latestLocByCab = new LinkedHashMap<>();
         for (Event e : events) {
             if (e instanceof LocationEvent loc) {
@@ -154,21 +126,10 @@ public class StateHydrationService {
      * Retrieve the current aggregated state snapshot for a topic.
      */
     public TopicSnapshot getSnapshot(String topic) {
-        String snapshotKey = EventSequencingService.getSnapshotKey(topic);
-        String json = redisTemplate.opsForValue().get(snapshotKey);
-        if (json != null) {
-            try {
-                return objectMapper.readValue(json, TopicSnapshot.class);
-            } catch (Exception e) {
-                log.error("Failed to parse snapshot for topic {}", topic, e);
-            }
-        }
-        String seqStr = redisTemplate.opsForValue().get(EventSequencingService.getSequenceKey(topic));
-        long currentSeq = (seqStr != null) ? Long.parseLong(seqStr) : 0L;
-        return TopicSnapshot.builder()
-                .topic(topic)
-                .lastSequenceNumber(currentSeq)
-                .build();
+        return repository.getSnapshot(topic)
+                .orElseGet(() -> TopicSnapshot.builder()
+                        .topic(topic)
+                        .lastSequenceNumber(repository.getCurrentSequence(topic))
+                        .build());
     }
 }
-

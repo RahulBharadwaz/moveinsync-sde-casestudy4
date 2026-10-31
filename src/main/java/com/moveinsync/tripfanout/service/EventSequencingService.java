@@ -1,13 +1,13 @@
 package com.moveinsync.tripfanout.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moveinsync.tripfanout.model.Event;
 import com.moveinsync.tripfanout.model.TopicSnapshot;
+import com.moveinsync.tripfanout.repository.RedisTopicStateRepository;
+import com.moveinsync.tripfanout.repository.TopicStateRepository;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
@@ -15,17 +15,13 @@ import java.util.UUID;
 /**
  * Core authority for strictly ordered sequence assignment, bounded replay buffer persistence,
  * state snapshot materialization, and cross-node broadcast.
+ * Follows clean Service-Repository layering.
  */
 @Slf4j
 @Service
 public class EventSequencingService {
 
-    public static final String SEQ_KEY_PREFIX = "topic:%s:seq";
-    public static final String BUFFER_KEY_PREFIX = "topic:%s:buffer";
-    public static final String SNAPSHOT_KEY_PREFIX = "topic:%s:snapshot";
-
-    private final StringRedisTemplate redisTemplate;
-    private final ObjectMapper objectMapper;
+    private final TopicStateRepository repository;
     private final EventPublisher eventPublisher;
 
     @Getter
@@ -33,37 +29,32 @@ public class EventSequencingService {
     private int maxBufferSize;
 
     public EventSequencingService(
-            StringRedisTemplate redisTemplate,
-            ObjectMapper objectMapper,
+            TopicStateRepository repository,
             EventPublisher eventPublisher,
             @Value("${app.replay-buffer.max-size:100}") int maxBufferSize) {
-        this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper;
+        this.repository = repository;
         this.eventPublisher = eventPublisher;
         this.maxBufferSize = maxBufferSize;
     }
 
     public static String getSequenceKey(String topic) {
-        return String.format(SEQ_KEY_PREFIX, topic);
+        return RedisTopicStateRepository.getSequenceKey(topic);
     }
 
     public static String getBufferKey(String topic) {
-        return String.format(BUFFER_KEY_PREFIX, topic);
+        return RedisTopicStateRepository.getBufferKey(topic);
     }
 
     public static String getSnapshotKey(String topic) {
-        return String.format(SNAPSHOT_KEY_PREFIX, topic);
+        return RedisTopicStateRepository.getSnapshotKey(topic);
     }
 
     /**
      * Ingest an event:
-     * 1. Assign strict monotonically increasing sequence number for its topic.
+     * 1. Assign strict monotonically increasing sequence number for its topic via repository.
      * 2. Store in bounded replay buffer (ZSET) and evict events older than maxBufferSize.
      * 3. Update the aggregated topic snapshot.
      * 4. Broadcast event to Redis Pub/Sub for cross-node gateway fanout.
-     *
-     * @param event The event to ingest
-     * @return The sequenced event
      */
     public Event ingest(Event event) {
         if (event == null || event.getTopic() == null || event.getTopic().isBlank()) {
@@ -79,20 +70,13 @@ public class EventSequencingService {
             event.setTimestamp(System.currentTimeMillis());
         }
 
-        // 1. Strict atomic sequence allocation per topic
-        Long seq = redisTemplate.opsForValue().increment(getSequenceKey(topic));
-        long sequenceNumber = (seq != null) ? seq : 1L;
+        // 1. Strict atomic sequence allocation per topic via repository
+        long sequenceNumber = repository.incrementSequence(topic);
         event.setSequenceNumber(sequenceNumber);
 
         try {
-            String eventJson = objectMapper.writeValueAsString(event);
-
             // 2. Add to bounded replay buffer (ZSET: score = sequenceNumber)
-            String bufferKey = getBufferKey(topic);
-            redisTemplate.opsForZSet().add(bufferKey, eventJson, (double) sequenceNumber);
-
-            // Trim buffer: keep at most maxBufferSize elements (evict oldest from rank 0)
-            redisTemplate.opsForZSet().removeRange(bufferKey, 0, -(maxBufferSize + 1));
+            repository.appendToBuffer(topic, event, sequenceNumber, maxBufferSize);
 
             // 3. Update current topic state snapshot
             updateSnapshot(topic, event);
@@ -111,28 +95,15 @@ public class EventSequencingService {
     }
 
     /**
-     * Update the latest aggregated state snapshot in Redis for this topic.
+     * Update the latest aggregated state snapshot for this topic.
      */
     private synchronized void updateSnapshot(String topic, Event event) {
-        String snapshotKey = getSnapshotKey(topic);
-        try {
-            TopicSnapshot snapshot = null;
-            String existingJson = redisTemplate.opsForValue().get(snapshotKey);
-            if (existingJson != null) {
-                snapshot = objectMapper.readValue(existingJson, TopicSnapshot.class);
-            }
-            if (snapshot == null) {
-                snapshot = TopicSnapshot.builder().topic(topic).build();
-            }
+        TopicSnapshot snapshot = repository.getSnapshot(topic)
+                .orElseGet(() -> TopicSnapshot.builder().topic(topic).build());
 
-            // Only update if this event is current or newer
-            if (event.getSequenceNumber() >= snapshot.getLastSequenceNumber()) {
-                snapshot.applyEvent(event);
-                String updatedJson = objectMapper.writeValueAsString(snapshot);
-                redisTemplate.opsForValue().set(snapshotKey, updatedJson);
-            }
-        } catch (Exception e) {
-            log.error("Failed to update snapshot for topic {}", topic, e);
+        if (event.getSequenceNumber() >= snapshot.getLastSequenceNumber()) {
+            snapshot.applyEvent(event);
+            repository.saveSnapshot(topic, snapshot);
         }
     }
 
@@ -140,16 +111,13 @@ public class EventSequencingService {
      * Returns the current latest sequence number for a topic (0 if none).
      */
     public long getCurrentSequenceNumber(String topic) {
-        String seqStr = redisTemplate.opsForValue().get(getSequenceKey(topic));
-        return (seqStr != null) ? Long.parseLong(seqStr) : 0L;
+        return repository.getCurrentSequence(topic);
     }
 
     /**
      * Returns the current number of events stored in the replay buffer for a topic.
      */
     public long getBufferSize(String topic) {
-        Long size = redisTemplate.opsForZSet().size(getBufferKey(topic));
-        return (size != null) ? size : 0L;
+        return repository.getBufferSize(topic);
     }
 }
-
