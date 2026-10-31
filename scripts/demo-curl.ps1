@@ -45,3 +45,4 @@ Invoke-RestMethod -Uri "$BaseUrl/metrics" -Method Get | ConvertTo-Json
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 Write-Host "    Demo Completed Successfully!                          " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
+

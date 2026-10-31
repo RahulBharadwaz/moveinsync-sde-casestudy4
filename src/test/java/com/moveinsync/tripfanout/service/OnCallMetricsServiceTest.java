@@ -61,3 +61,4 @@ class OnCallMetricsServiceTest {
         assertThat(queue.get("backpressuredSessions")).isEqualTo(5L);
     }
 }
+

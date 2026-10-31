@@ -151,3 +151,4 @@ public class RedisTopicStateRepository implements TopicStateRepository {
         l1SnapshotCache.invalidate(topic);
     }
 }
+
