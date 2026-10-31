@@ -21,18 +21,17 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Measures end-to-end ingestion throughput (QPS) and p50 / p95 / p99 delivery latency for SOS alerts.
  * Proves that SOS delivery latency remains strictly under the 2.0-second SLA.
  */
-@SpringBootTest
 @SuppressWarnings("null")
 class PerformanceLoadBenchmarkTest {
 
     @Test
     @DisplayName("Performance Benchmark: High-throughput fanout with p50/p99 SOS latency under heavy concurrent load")
     void runPerformanceBenchmark() throws Exception {
-        int connectionCount = 2000;      // 2,000 active connected screens
-        int publisherThreads = 10;       // 10 concurrent publishing threads (representing 2,000 cabs fleet)
-        int eventsPerPublisher = 200;    // 2,000 total events
+        int connectionCount = 10000;     // 10,000 active connected screens (Case Study Hard Target)
+        int publisherThreads = 20;       // 20 concurrent publishing threads simulating 2,000 cabs fleet
+        int eventsPerPublisher = 100;    // 2,000 total events
         int totalEvents = publisherThreads * eventsPerPublisher;
-        int officeCount = 10;
+        int officeCount = 20;
 
         SlowConsumerPolicy policy = SlowConsumerPolicy.builder()
                 .maxCapacity(50)
