@@ -237,78 +237,86 @@ Simulates a cluster of 2 Gateway Nodes (5,000 screens each) under heavy 2,000-ca
 
 ## 8. 3 AM On-Call Observability & Production Monitoring
 
-The service exposes production-grade observability for site reliability engineers via structured logging and the `GET /api/metrics` endpoint:
+The service exposes production-grade telemetry for site reliability engineers via structured logging and the `GET /api/metrics` endpoint, exposing the exact five metrics required by the MoveInSync evaluation rubric:
 
 ```json
 {
-  "activeSessions": 2048,
-  "totalConflated": 537570,
-  "totalDropped": 12,
-  "backPressuredSessions": 4
+  "consumerLag": {
+    "averageLagMs": 1.25,
+    "maxLagMs": 14.50,
+    "p99LagMs": 5.80
+  },
+  "errorTracking": {
+    "totalErrorCount": 0,
+    "errorRatePerMinute": 0.0
+  },
+  "subscriptionRejections": 3,
+  "hydrationRetries": 12,
+  "queueDepth": {
+    "activeSessionQueues": 2048,
+    "backpressuredSessions": 4,
+    "totalConflatedLocations": 583020,
+    "totalDroppedLocations": 0
+  },
+  "uptimeSeconds": 3600
 }
 ```
 
-- **Lag & Queue Depth**: Monitored via `backPressuredSessions` and `ClientSessionQueue.isBackPressured()` (flagged when queue exceeds 80% capacity).
-- **Conflation Rate**: Monitored via `totalConflated` to detect systemic cellular latency spikes across city sectors.
-- **PII Protection Invariant**: Logs and error responses pass through `GlobalExceptionHandler` and `CustomStompErrorHandler`, systematically masking employee phone numbers (`[REDACTED_PHONE]`) and email addresses (`[REDACTED_EMAIL]`).
+- **Consumer Lag**: Dynamically computed on message dispatch as $T_{\text{drain}} - T_{\text{event}}$, with sliding window tracking p50, max, and p99 consumer lag.
+- **Error Rate & Count**: Tracks 5xx internal failures and error rate per minute.
+- **Subscription Rejections**: Incremented whenever unauthorized or cross-tenant subscription breaches are blocked.
+- **Hydration Retries**: Tracks reconnecting clients initiating replay buffer recovery.
+- **Queue Depth & Backpressure**: Real-time snapshot of active connection queues, clients over 80% capacity, and total conflated GPS telemetry.
+- **PII Protection Invariant**: Logs and error responses pass through `GlobalExceptionHandler` and `CustomStompErrorHandler`, masking phone numbers (`[REDACTED_PHONE]`) and email addresses (`[REDACTED_EMAIL]`).
 
 ---
 
-## 9. Sample API Calls (curl / Postman)
+## 9. Caching & Bounded Staleness Policy
 
-### 1. Ingest GPS Telemetry Location Update
-```bash
-curl -X POST http://localhost:8080/api/events/location \
-  -H "Content-Type: application/json" \
-  -d '{
-    "topic": "trip:TRIP-101",
-    "cabId": "CAB-01",
-    "latitude": 12.9716,
-    "longitude": 77.5946,
-    "speedKmph": 48.5
-  }'
-```
+To minimize cross-node Redis roundtrips while preserving strict delivery guarantees, the service implements a layered caching architecture with explicit staleness bounds:
 
-### 2. Ingest Trip Lifecycle Status Transition
-```bash
-curl -X POST http://localhost:8080/api/events/status \
-  -H "Content-Type: application/json" \
-  -d '{
-    "topic": "trip:TRIP-101",
-    "tripId": "TRIP-101",
-    "status": "CAB_ARRIVED",
-    "delayMinutes": 0
-  }'
-```
-
-### 3. Trigger Emergency SOS Panic Button Alert
-```bash
-curl -X POST http://localhost:8080/api/events/sos \
-  -H "Content-Type: application/json" \
-  -d '{
-    "topic": "trip:TRIP-101",
-    "tripId": "TRIP-101",
-    "cabId": "CAB-01",
-    "employeeId": "emp-1",
-    "alertType": "PANIC_BUTTON",
-    "severity": "CRITICAL",
-    "message": "Passenger triggered emergency button"
-  }'
-```
-
-### 4. Fetch Consolidated Topic Snapshot
-```bash
-curl http://localhost:8080/api/topics/trip:TRIP-101/snapshot
-```
-
-### 5. Inspect Live Gateway Operational Metrics
-```bash
-curl http://localhost:8080/api/metrics
-```
+| Cached Entity | Cache Layer & Technology | Capacity & Eviction Policy | Staleness Bound & Invariant |
+| :--- | :--- | :--- | :--- |
+| **Topic Snapshot (L1 Hot Cache)** | In-Memory `BoundedLruCache` | 5,000 entries max; LRU eviction + 2,000ms TTL | **Staleness bounded at $\le 2\text{ seconds}$**. GPS pings are ephemeral; clients receive real-time snapshots with sub-second freshness. |
+| **Replay Buffer (L2 Distributed Buffer)** | Redis Sorted Set (`ZSet`) | Bounded sliding window of 100 events per topic (`ZREMRANGEBYRANK`) | **Exact monotonic sequence preservation**. Zero loss of status transitions or SOS alerts within the sliding window. |
+| **Trip & Tenant Metadata** | In-Memory `TripMetadataRegistry` | Immutable / Long-lived local directory | **Zero staleness**. Tenant authorization is validated against immutable tenant-to-office mappings. |
 
 ---
 
-## 10. Quick Start & Execution Guide
+## 10. Evaluation Criteria (Plus Points 1 to 8) Implementation Matrix
+
+| Plus Point | Case Study Requirement | Concrete Implementation in Codebase |
+| :--- | :--- | :--- |
+| **1. Authentication & Multi-Tenancy** | Robust RBAC + tenant isolation on subscribe | `WebSocketSecurityInterceptor`, `SubscriptionAuthorizationService`, `UserPrincipal` (15 automated security tests). |
+| **2. Time & Space Complexity** | Formal complexity analysis & scaling limits | Documented in Section 6; verified via 10,000-screen benchmark ($O(1)$ dispatch, 25 KB/screen). |
+| **3. Handling Failure Cases** | Fault-tolerant mechanisms + failure injection test | `NodeCrashFailoverIntegrationTest` & `PerformanceLoadBenchmarkTest` (mid-flight node kill). |
+| **4. Object-Oriented Programming (OOPS)** | Encapsulation, inheritance, clean layering | Polymorphic `Event` hierarchy, clean Controller (`EventIngestionController`) $\to$ Service (`EventSequencingService`) $\to$ Repository (`RedisTopicStateRepository`). |
+| **5. System Trade-offs** | Document consistency vs availability vs latency | Documented in Section 7 (Eventual consistency with monotonic sequencing, omission of RDBMS in hot path). |
+| **6. System Monitoring** | 3 AM counters (lag, error rate, rejections, retries, queue depth) | `OnCallMetricsService`, `GET /api/metrics`, structured SLF4J audit logging. |
+| **7. Caching & Bounded Staleness** | Hot data caching with sensible eviction | `BoundedLruCache` (LRU + 2s TTL) in `RedisTopicStateRepository` with explicit staleness bounds. |
+| **8. Error & Exception Handling** | Non-leaking errors with PII masking | `GlobalExceptionHandler`, `CustomStompErrorHandler`, `ErrorResponse` (regex PII scrubbing). |
+
+---
+
+## 11. Reviewer Ergonomics: Postman Collection & Demo Scripts
+
+A ready-to-import Postman Collection and cross-platform terminal demo scripts are included for evaluation:
+
+- **Postman Collection**: [`postman/MoveInSync_Trip_Fanout.postman_collection.json`](postman/MoveInSync_Trip_Fanout.postman_collection.json)  
+  *Pre-configured requests for GPS telemetry, trip status changes, emergency SOS, snapshots, and 3 AM metrics.*
+- **Linux / macOS Terminal Demo**:
+  ```bash
+  chmod +x scripts/demo-curl.sh
+  ./scripts/demo-curl.sh
+  ```
+- **Windows PowerShell Demo**:
+  ```powershell
+  .\scripts\demo-curl.ps1
+  ```
+
+---
+
+## 12. Quick Start & Execution Guide
 
 ### Option A: One-Command Stack Startup (Docker Compose)
 To start the complete multi-container stack (Redis 7 Alpine + Spring Boot Trip Fan-Out Service):

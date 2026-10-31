@@ -27,3 +27,4 @@ EXPOSE 8080
 
 # Production JVM flags with Generational ZGC for sub-millisecond pauses
 ENTRYPOINT ["java", "-XX:+UseZGC", "-XX:+ZGenerational", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
+

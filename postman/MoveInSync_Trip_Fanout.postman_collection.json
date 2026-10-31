@@ -1,0 +1,112 @@
+{
+  "info": {
+    "_postman_id": "moveinsync-trip-fanout-v1",
+    "name": "MoveInSync Trip Fan-Out API",
+    "description": "Case Study 4: Live Trip Updates Fan-Out (Ordered, Resumable, Back-Pressured Real-Time WebSocket & REST Ingestion Architecture).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Ingest GPS Location Telemetry",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"topic\": \"trip:TRIP-101\",\n  \"cabId\": \"CAB-01\",\n  \"latitude\": 12.9716,\n  \"longitude\": 77.5946,\n  \"speedKmph\": 48.5\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/events/location",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "events", "location"]
+        },
+        "description": "Publishes high-frequency GPS telemetry for a cab. Subject to in-place conflation under slow consumer backpressure."
+      }
+    },
+    {
+      "name": "2. Ingest Trip Status Transition",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"topic\": \"trip:TRIP-101\",\n  \"tripId\": \"TRIP-101\",\n  \"status\": \"CAB_ARRIVED\",\n  \"delayMinutes\": 0\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/events/status",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "events", "status"]
+        },
+        "description": "Publishes trip lifecycle state change (DRIVER_ASSIGNED, CAB_ARRIVED, PASSENGER_BOARDED, TRIP_STARTED, COMPLETED). Strictly ordered, inviolable."
+      }
+    },
+    {
+      "name": "3. Trigger Emergency SOS Alert",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"topic\": \"trip:TRIP-101\",\n  \"tripId\": \"TRIP-101\",\n  \"cabId\": \"CAB-01\",\n  \"employeeId\": \"emp-1\",\n  \"alertType\": \"PANIC_BUTTON\",\n  \"severity\": \"CRITICAL\",\n  \"message\": \"Passenger triggered panic button\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/events/sos",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "events", "sos"]
+        },
+        "description": "Dispatches high-priority emergency SOS alert. Dispatched to Priority Lane 0, skipping ahead of all telemetry with sub-second delivery."
+      }
+    },
+    {
+      "name": "4. Fetch Consolidated Topic Snapshot",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/api/topics/trip:TRIP-101/snapshot",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "topics", "trip:TRIP-101", "snapshot"]
+        },
+        "description": "Returns current consolidated state of a topic (latest location, latest status, active SOS state)."
+      }
+    },
+    {
+      "name": "5. 3 AM On-Call Metrics & Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/api/metrics",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "metrics"]
+        },
+        "description": "Returns production on-call telemetry: consumer lag, error rate, subscription rejections, hydration retries, and queue depth."
+      }
+    }
+  ]
+}
