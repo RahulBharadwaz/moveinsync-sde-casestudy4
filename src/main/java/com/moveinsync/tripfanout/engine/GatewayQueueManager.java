@@ -174,6 +174,7 @@ public class GatewayQueueManager {
                 .sum();
     }
 
+    @SuppressWarnings("null")
     public long getBackPressuredSessionCount() {
         return sessionQueues.values().stream()
                 .filter(ClientSessionQueue::isBackPressured)
