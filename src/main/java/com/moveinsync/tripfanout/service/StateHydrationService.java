@@ -29,12 +29,23 @@ public class StateHydrationService {
 
     /**
      * Hydrate a client resuming subscription on a topic.
+     * Raw replay mode: returns all missed events without conflation.
+     */
+    public HydrationResult hydrate(String topic, long lastSequenceNumber) {
+        return hydrate(topic, lastSequenceNumber, false);
+    }
+
+    /**
+     * Hydrate a client resuming subscription on a topic.
      *
      * @param topic Topic identifier
      * @param lastSequenceNumber Last sequence number successfully processed by the client
+     * @param conflateLocations When true (e.g. mobile client resuming after elevator/tunnel),
+     *                          conflates intermediate location updates to only return the latest
+     *                          location per vehicle while preserving all status & SOS events in order.
      * @return HydrationResult containing either REPLAY list or full SNAPSHOT
      */
-    public HydrationResult hydrate(String topic, long lastSequenceNumber) {
+    public HydrationResult hydrate(String topic, long lastSequenceNumber, boolean conflateLocations) {
         if (topic == null || topic.isBlank()) {
             throw new IllegalArgumentException("Topic cannot be blank");
         }
@@ -93,10 +104,50 @@ public class StateHydrationService {
             }
         }
 
-        log.debug("Replaying {} missed events for topic {} from seq {} to current {}",
-                missedEvents.size(), topic, lastSequenceNumber, currentSeq);
+        // Apply in-place location conflation if requested (e.g. 40-second lift use case)
+        if (conflateLocations && !missedEvents.isEmpty()) {
+            missedEvents = conflateReplayLocations(missedEvents);
+        }
+
+        log.debug("Replaying {} missed events for topic {} from seq {} to current {} (conflated: {})",
+                missedEvents.size(), topic, lastSequenceNumber, currentSeq, conflateLocations);
 
         return HydrationResult.replay(topic, lastSequenceNumber, currentSeq, missedEvents);
+    }
+
+    /**
+     * Conflates intermediate location events during replay while strictly preserving
+     * status transitions and SOS emergency alerts in sequence order.
+     */
+    private List<Event> conflateReplayLocations(List<Event> events) {
+        // Map cab -> highest sequence number location event
+        Map<String, LocationEvent> latestLocByCab = new LinkedHashMap<>();
+        for (Event e : events) {
+            if (e instanceof LocationEvent loc) {
+                String cabKey = (loc.getCabId() != null && !loc.getCabId().isBlank())
+                        ? loc.getCabId() : "DEFAULT";
+                latestLocByCab.put(cabKey, loc);
+            }
+        }
+
+        Set<String> processedCabs = new HashSet<>();
+        List<Event> conflated = new ArrayList<>(events.size());
+
+        for (Event e : events) {
+            if (e instanceof StatusEvent || e instanceof SOSEvent) {
+                conflated.add(e);
+            } else if (e instanceof LocationEvent loc) {
+                String cabKey = (loc.getCabId() != null && !loc.getCabId().isBlank())
+                        ? loc.getCabId() : "DEFAULT";
+                LocationEvent latest = latestLocByCab.get(cabKey);
+                if (latest != null && latest.getSequenceNumber() == loc.getSequenceNumber()
+                        && !processedCabs.contains(cabKey)) {
+                    conflated.add(latest);
+                    processedCabs.add(cabKey);
+                }
+            }
+        }
+        return conflated;
     }
 
     /**

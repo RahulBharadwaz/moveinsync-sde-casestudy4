@@ -130,22 +130,44 @@ public class WebSocketSecurityInterceptor implements ChannelInterceptor {
             try {
                 long lastSeq = Long.parseLong(lastSeqHeader.trim());
                 String canonicalTopic = TopicUtils.toCanonicalTopic(destination);
-                HydrationResult hydration = stateHydrationService.hydrate(canonicalTopic, lastSeq);
+                HydrationResult hydration = stateHydrationService.hydrate(canonicalTopic, lastSeq, true);
 
                 log.info("Hydrating resuming subscriber [{}]: topic=[{}], requestedSeq=[{}], type=[{}]",
                         (principal != null ? principal.getName() : "anonymous"), canonicalTopic, lastSeq, hydration.getType());
 
+                ClientSessionQueue clientQueue = (sessionId != null) ? gatewayQueueManager.getOrCreateQueue(sessionId) : null;
+
                 if (hydration.getType() == HydrationResult.HydrationType.REPLAY) {
                     for (Event missed : hydration.getMissedEvents()) {
-                        messagingTemplate.convertAndSend(destination, missed);
+                        if (clientQueue != null) {
+                            clientQueue.enqueue(missed);
+                        }
+                        deliverToSession(sessionId, destination, accessor.getSubscriptionId(), missed);
                     }
                 } else if (hydration.getType() == HydrationResult.HydrationType.SNAPSHOT && hydration.getSnapshot() != null) {
-                    messagingTemplate.convertAndSend(destination, hydration.getSnapshot());
+                    deliverToSession(sessionId, destination, accessor.getSubscriptionId(), hydration.getSnapshot());
                 }
             } catch (Exception e) {
                 log.warn("Failed to process resumable hydration on subscribe for destination {}", destination, e);
             }
         }
+    }
+
+    private void deliverToSession(String sessionId, String destination, String subscriptionId, Object payload) {
+        if (messagingTemplate == null || destination == null) {
+            return;
+        }
+        StompHeaderAccessor replyHeaders = StompHeaderAccessor.create(StompCommand.MESSAGE);
+        replyHeaders.setDestination(destination);
+        if (sessionId != null) {
+            replyHeaders.setSessionId(sessionId);
+        }
+        if (subscriptionId != null) {
+            replyHeaders.setSubscriptionId(subscriptionId);
+        }
+        replyHeaders.setNativeHeader("X-Hydrated", "true");
+        replyHeaders.setLeaveMutable(true);
+        messagingTemplate.convertAndSend(destination, payload, replyHeaders.getMessageHeaders());
     }
 
     private void handleUnsubscribe(StompHeaderAccessor accessor) {

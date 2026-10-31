@@ -319,5 +319,113 @@ class RedisMessagingIntegrationTest {
                 java.util.stream.LongStream.rangeClosed(1, totalEvents).boxed().toList()
         );
     }
+
+    @Test
+    @DisplayName("Example Use Case: Employee in lift for 40 seconds receives 3 missed status changes in order, and only the latest location")
+    void testLiftFor40SecondsReconnectionHydration() {
+        String liftTopic = "trip:TRIP-LIFT-40S";
+        cleanTopic(liftTopic);
+
+        // Sequence 1: Initial trip start before entering elevator
+        sequencingService.ingest(StatusEvent.builder()
+                .topic(liftTopic)
+                .tripId("TRIP-LIFT-40S")
+                .status("BOOKING_CONFIRMED")
+                .build());
+
+        long lastReceivedSeqOnPhone = 1L; // Phone enters elevator here!
+
+        // During 40 seconds in elevator:
+        // Cabs stream 10 location updates
+        for (int i = 1; i <= 10; i++) {
+            sequencingService.ingest(LocationEvent.builder()
+                    .topic(liftTopic)
+                    .cabId("CAB-LIFT-1")
+                    .latitude(12.900 + (i * 0.001))
+                    .longitude(77.500 + (i * 0.001))
+                    .build());
+        }
+
+        // Status change 1: DRIVER_ARRIVED
+        sequencingService.ingest(StatusEvent.builder()
+                .topic(liftTopic)
+                .tripId("TRIP-LIFT-40S")
+                .status("DRIVER_ARRIVED")
+                .build());
+
+        // Cabs stream another 10 location updates
+        for (int i = 11; i <= 20; i++) {
+            sequencingService.ingest(LocationEvent.builder()
+                    .topic(liftTopic)
+                    .cabId("CAB-LIFT-1")
+                    .latitude(12.900 + (i * 0.001))
+                    .longitude(77.500 + (i * 0.001))
+                    .build());
+        }
+
+        // Status change 2: PASSENGER_BOARDED
+        sequencingService.ingest(StatusEvent.builder()
+                .topic(liftTopic)
+                .tripId("TRIP-LIFT-40S")
+                .status("PASSENGER_BOARDED")
+                .build());
+
+        // Cabs stream another 10 location updates
+        for (int i = 21; i <= 30; i++) {
+            sequencingService.ingest(LocationEvent.builder()
+                    .topic(liftTopic)
+                    .cabId("CAB-LIFT-1")
+                    .latitude(12.900 + (i * 0.001))
+                    .longitude(77.500 + (i * 0.001))
+                    .build());
+        }
+
+        // Status change 3: TRIP_STARTED
+        sequencingService.ingest(StatusEvent.builder()
+                .topic(liftTopic)
+                .tripId("TRIP-LIFT-40S")
+                .status("TRIP_STARTED")
+                .build());
+
+        // Final 10 location updates
+        for (int i = 31; i <= 40; i++) {
+            sequencingService.ingest(LocationEvent.builder()
+                    .topic(liftTopic)
+                    .cabId("CAB-LIFT-1")
+                    .latitude(12.900 + (i * 0.001))
+                    .longitude(77.500 + (i * 0.001))
+                    .build());
+        }
+
+        // Phone exits elevator after 40 seconds, reconnects passing last-sequence-number: 1
+        HydrationResult result = hydrationService.hydrate(liftTopic, lastReceivedSeqOnPhone, true);
+
+        assertThat(result.getType()).isEqualTo(HydrationResult.HydrationType.REPLAY);
+        List<Event> delivered = result.getMissedEvents();
+
+        // Exactly 4 events delivered: 3 status changes + only 1 (the latest) location!
+        assertThat(delivered).hasSize(4);
+
+        // Verify the 3 status events were delivered in order
+        List<StatusEvent> statuses = delivered.stream()
+                .filter(e -> e instanceof StatusEvent)
+                .map(e -> (StatusEvent) e)
+                .toList();
+        assertThat(statuses).hasSize(3);
+        assertThat(statuses.get(0).getStatus()).isEqualTo("DRIVER_ARRIVED");
+        assertThat(statuses.get(1).getStatus()).isEqualTo("PASSENGER_BOARDED");
+        assertThat(statuses.get(2).getStatus()).isEqualTo("TRIP_STARTED");
+
+        // Verify ONLY the latest location was delivered (latitude = 12.940, seq = 44)
+        List<LocationEvent> locations = delivered.stream()
+                .filter(e -> e instanceof LocationEvent)
+                .map(e -> (LocationEvent) e)
+                .toList();
+        assertThat(locations).hasSize(1);
+        assertThat(locations.get(0).getLatitude()).isEqualTo(12.940);
+        assertThat(locations.get(0).getSequenceNumber()).isEqualTo(44L);
+
+        cleanTopic(liftTopic);
+    }
 }
 
