@@ -25,6 +25,7 @@ public class EventIngestionController {
     private final EventSequencingService sequencingService;
     private final StateHydrationService hydrationService;
     private final GatewayQueueManager gatewayQueueManager;
+    private final com.moveinsync.tripfanout.service.OnCallMetricsService onCallMetricsService;
 
     @PostMapping("/events/location")
     public ResponseEntity<Event> ingestLocation(@RequestBody LocationEvent locationEvent) {
@@ -65,12 +66,7 @@ public class EventIngestionController {
 
     @GetMapping("/metrics")
     public ResponseEntity<Map<String, Object>> getMetrics() {
-        return ResponseEntity.ok(Map.of(
-                "activeSessions", gatewayQueueManager.getActiveSessionCount(),
-                "totalConflated", gatewayQueueManager.getTotalConflatedCount(),
-                "totalDropped", gatewayQueueManager.getTotalDroppedCount(),
-                "backPressuredSessions", gatewayQueueManager.getBackPressuredSessionCount()
-        ));
+        return ResponseEntity.ok(onCallMetricsService.getOnCallReport());
     }
 }
 

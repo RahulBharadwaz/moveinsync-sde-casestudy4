@@ -1,5 +1,6 @@
 package com.moveinsync.tripfanout.security;
 
+import com.moveinsync.tripfanout.engine.ClientSessionQueue;
 import com.moveinsync.tripfanout.engine.GatewayQueueManager;
 import com.moveinsync.tripfanout.model.Event;
 import com.moveinsync.tripfanout.model.HydrationResult;
@@ -38,6 +39,9 @@ public class WebSocketSecurityInterceptor implements ChannelInterceptor {
     private final StateHydrationService stateHydrationService;
     private final GatewayQueueManager gatewayQueueManager;
     private final SimpMessagingTemplate messagingTemplate;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.moveinsync.tripfanout.service.OnCallMetricsService metricsService;
 
     public WebSocketSecurityInterceptor(
             MockAuthenticationService authenticationService,
@@ -111,7 +115,14 @@ public class WebSocketSecurityInterceptor implements ChannelInterceptor {
         String sessionId = accessor.getSessionId();
 
         // 1. Dynamic Authorization & Tenant Isolation Check
-        authorizationService.authorizeSubscription(principal, destination);
+        try {
+            authorizationService.authorizeSubscription(principal, destination);
+        } catch (SubscriptionSecurityException e) {
+            if (metricsService != null) {
+                metricsService.recordSubscriptionRejection();
+            }
+            throw e;
+        }
         log.info("Subscription approved: user=[{}] -> destination=[{}]",
                 (principal != null ? principal.getName() : "anonymous"), destination);
 
@@ -127,6 +138,9 @@ public class WebSocketSecurityInterceptor implements ChannelInterceptor {
         }
 
         if (lastSeqHeader != null && stateHydrationService != null && messagingTemplate != null) {
+            if (metricsService != null) {
+                metricsService.recordHydrationRetry();
+            }
             try {
                 long lastSeq = Long.parseLong(lastSeqHeader.trim());
                 String canonicalTopic = TopicUtils.toCanonicalTopic(destination);

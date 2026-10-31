@@ -34,6 +34,9 @@ class EventIngestionControllerTest {
     @Mock
     private GatewayQueueManager gatewayQueueManager;
 
+    @Mock
+    private com.moveinsync.tripfanout.service.OnCallMetricsService onCallMetricsService;
+
     @InjectMocks
     private EventIngestionController controller;
 
@@ -122,18 +125,18 @@ class EventIngestionControllerTest {
     @Test
     @DisplayName("REST API: Retrieve on-call observability metrics")
     void testGetMetrics() {
-        when(gatewayQueueManager.getActiveSessionCount()).thenReturn(42);
-        when(gatewayQueueManager.getTotalConflatedCount()).thenReturn(1000L);
-        when(gatewayQueueManager.getTotalDroppedCount()).thenReturn(5L);
-        when(gatewayQueueManager.getBackPressuredSessionCount()).thenReturn(2L);
+        Map<String, Object> mockReport = Map.of(
+                "subscriptionRejections", 3L,
+                "hydrationRetries", 5L,
+                "uptimeSeconds", 120L
+        );
+        when(onCallMetricsService.getOnCallReport()).thenReturn(mockReport);
 
         ResponseEntity<Map<String, Object>> response = controller.getMetrics();
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().get("activeSessions")).isEqualTo(42);
-        assertThat(response.getBody().get("totalConflated")).isEqualTo(1000L);
-        assertThat(response.getBody().get("totalDropped")).isEqualTo(5L);
-        assertThat(response.getBody().get("backPressuredSessions")).isEqualTo(2L);
+        assertThat(response.getBody().get("subscriptionRejections")).isEqualTo(3L);
+        assertThat(response.getBody().get("hydrationRetries")).isEqualTo(5L);
     }
 }

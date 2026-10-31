@@ -18,8 +18,14 @@ import java.time.Instant;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.moveinsync.tripfanout.service.OnCallMetricsService metricsService;
+
     @ExceptionHandler(SubscriptionSecurityException.class)
     public ResponseEntity<ErrorResponse> handleSecurityException(SubscriptionSecurityException ex, HttpServletRequest request) {
+        if (metricsService != null) {
+            metricsService.recordSubscriptionRejection();
+        }
         log.warn("Security rejection on path [{}]: {}", request.getRequestURI(), ex.getMessage());
         ErrorResponse response = ErrorResponse.builder()
                 .timestamp(Instant.now())
@@ -46,6 +52,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex, HttpServletRequest request) {
+        if (metricsService != null) {
+            metricsService.recordError();
+        }
         log.error("Internal server error on path [{}]", request.getRequestURI(), ex);
         ErrorResponse response = ErrorResponse.builder()
                 .timestamp(Instant.now())
