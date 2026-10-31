@@ -148,9 +148,9 @@ ClientSessionQueue Memory Layout:
 
 ## 4. Measured Performance & Load Benchmark
 
-Simulations were executed across **10,000 active client screens** (meeting the case study scale requirement) and **2,000 simulated cabs** across 20 concurrent publishing threads, measuring end-to-end throughput and percentile delivery latencies for emergency SOS alerts.
+Simulations were executed across **10,000 active client screens** (meeting the case study scale requirement) and **2,000 simulated cabs** across 20 concurrent publishing threads, measuring end-to-end throughput and percentile delivery latencies for emergency SOS alerts both under steady state and **during an active Gateway Node crash**.
 
-### Benchmark Results (`PerformanceLoadBenchmarkTest`)
+### Benchmark 1: High-Concurrency Load Simulation (`PerformanceLoadBenchmarkTest`)
 
 **Hardware Test Environment**:
 - **OS**: Windows 11 (AMD64, 16 Physical Cores)
@@ -159,14 +159,29 @@ Simulations were executed across **10,000 active client screens** (meeting the c
 
 | Metric | Measured Value (10,000 Screens) | Measured Value (2,000 Screens) | Case Study SLA Target | Result |
 | :--- | :--- | :--- | :--- | :--- |
-| **Ingestion / Fan-Out Throughput** | **9,959.46 events/sec** | **17,304.81 events/sec** | High-throughput distributed | **PASS** |
-| **SOS Latency (p50)** | **6.35 ms** | **0.61 ms** | $< 2,000\text{ ms}$ | **PASS** ($> 300\times$ faster) |
-| **SOS Latency (p90)** | **28.41 ms** | **3.80 ms** | $< 2,000\text{ ms}$ | **PASS** |
-| **SOS Latency (p95)** | **36.30 ms** | **5.72 ms** | $< 2,000\text{ ms}$ | **PASS** |
-| **SOS Latency (p99)** | **59.98 ms** | **10.18 ms** | **$< 2,000\text{ ms}$** | **PASS (Strict Guarantee)** |
-| **SOS Latency (Max)** | **76.11 ms** | **19.46 ms** | $< 2,000\text{ ms}$ | **PASS** |
-| **Telemetry Conflated** | **537,570 updates** | **230,363 updates** | Bounded buffer preservation | **PASS** |
+| **Ingestion / Fan-Out Throughput** | **15,136.73 events/sec** | **17,304.81 events/sec** | High-throughput distributed | **PASS** |
+| **SOS Latency (p50)** | **4.22 ms** | **0.61 ms** | $< 2,000\text{ ms}$ | **PASS** ($> 400\times$ faster) |
+| **SOS Latency (p90)** | **32.08 ms** | **3.80 ms** | $< 2,000\text{ ms}$ | **PASS** |
+| **SOS Latency (p95)** | **40.09 ms** | **5.72 ms** | $< 2,000\text{ ms}$ | **PASS** |
+| **SOS Latency (p99)** | **50.97 ms** | **10.18 ms** | **$< 2,000\text{ ms}$** | **PASS (Strict Guarantee)** |
+| **SOS Latency (Max)** | **57.17 ms** | **19.46 ms** | $< 2,000\text{ ms}$ | **PASS** |
+| **Telemetry Conflated** | **583,020 updates** | **230,363 updates** | Bounded buffer preservation | **PASS** |
 | **SOS Delivery Samples** | **50,000 delivered** | **20,000 delivered** | 100% Delivery SLA | **PASS** |
+
+### Benchmark 2: Catastrophic Node-Kill Failover Benchmark (`run10kScreensNodeKillFailoverBenchmark`)
+
+Simulates a cluster of 2 Gateway Nodes (5,000 screens each) under heavy 2,000-cab publishing traffic, where **Gateway Node 1 is abruptly terminated at the 50% traffic mark**, and all 5,000 orphaned screens instantly fail over and reconnect to Node 2:
+
+| Metric | Measured Value (During Live Node Kill) | Case Study SLA Target | Result |
+| :--- | :--- | :--- | :--- |
+| **Pre-Crash Screens** | **10,000 screens** (5,000 Node 1, 5,000 Node 2) | Distributed Cluster | **PASS** |
+| **Failure Event** | **Node 1 Terminated Mid-Flight** (0 sessions) | Failure Injection | **PASS** |
+| **Failover Absorption** | **Node 2 Absorbed All 10,000 screens** | Self-Healing Cluster | **PASS** |
+| **Cluster Fanout Throughput** | **8,044.83 events/sec (QPS)** | Resilient Fan-Out | **PASS** |
+| **SOS Delivery Latency (p50)** | **7.25 ms** | $< 2,000\text{ ms}$ | **PASS** |
+| **SOS Delivery Latency (p95)** | **33.92 ms** | $< 2,000\text{ ms}$ | **PASS** |
+| **SOS Delivery Latency (p99)** | **47.24 ms** | **$< 2,000\text{ ms}$** | **PASS (Strict Guarantee)** |
+| **Total Telemetry Conflated** | **326,525 updates** | Memory Protection | **PASS** |
 
 ---
 
@@ -295,17 +310,28 @@ curl http://localhost:8080/api/metrics
 
 ## 10. Quick Start & Execution Guide
 
-### Prerequisites
-- **Java 21 LTS**
-- **Docker & Docker Compose**
-
-### Step 1: Start Redis Infrastructure
+### Option A: One-Command Stack Startup (Docker Compose)
+To start the complete multi-container stack (Redis 7 Alpine + Spring Boot Trip Fan-Out Service):
 ```bash
-docker compose up -d
+docker compose up --build -d
+```
+*The service will build via multi-stage Temurin Java 21, connect to Redis via healthchecks, and expose HTTP & WebSocket STOMP on port 8080.*
+
+---
+
+### Option B: Local Developer Execution
+
+#### Prerequisites
+- **Java 21 LTS**
+- **Docker** (for Redis broker)
+
+#### Step 1: Start Redis Infrastructure
+```bash
+docker compose up redis -d
 ```
 *Verify Redis is running on port 6379.*
 
-### Step 2: Run All Tests (44 Unit, Integration & Benchmark Tests)
+#### Step 2: Run All Tests (Unit, Integration & Benchmarks)
 ```bash
 # Windows
 .\mvnw.cmd clean test
@@ -314,7 +340,7 @@ docker compose up -d
 ./mvnw clean test
 ```
 
-### Step 3: Run the Service
+#### Step 3: Run the Service Locally
 ```bash
 # Windows
 .\mvnw.cmd spring-boot:run
