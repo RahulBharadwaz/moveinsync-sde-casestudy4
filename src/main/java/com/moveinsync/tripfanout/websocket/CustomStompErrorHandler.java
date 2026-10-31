@@ -1,6 +1,7 @@
 package com.moveinsync.tripfanout.websocket;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
@@ -19,13 +20,13 @@ import java.nio.charset.StandardCharsets;
 public class CustomStompErrorHandler extends StompSubProtocolErrorHandler {
 
     @Override
-    public Message<byte[]> handleClientMessageProcessingError(Message<byte[]> clientMessage, Throwable ex) {
+    public Message<byte[]> handleClientMessageProcessingError(@Nullable Message<byte[]> clientMessage, @Nullable Throwable ex) {
         Throwable cause = ex;
-        while (cause.getCause() != null && cause != cause.getCause()) {
+        while (cause != null && cause.getCause() != null && cause != cause.getCause()) {
             cause = cause.getCause();
         }
 
-        String rawMessage = (cause.getMessage() != null) ? cause.getMessage() : "Internal WebSocket processing error";
+        String rawMessage = (cause != null && cause.getMessage() != null) ? cause.getMessage() : "Internal WebSocket processing error";
         String sanitizedMessage = sanitize(rawMessage);
 
         log.warn("STOMP processing error: {}", sanitizedMessage);

@@ -54,7 +54,7 @@ class NodeCrashFailoverIntegrationTest {
         GatewayQueueManager gatewayNode1 = new GatewayQueueManager(policy);
         String clientSessionNode1 = "client-screen-session-on-node-1";
         gatewayNode1.registerSubscription(clientSessionNode1, CRASH_TRIP_TOPIC);
-        ClientSessionQueue queueNode1 = gatewayNode1.getQueue(clientSessionNode1).orElseThrow();
+        assertThat(gatewayNode1.getQueue(clientSessionNode1)).isPresent();
 
         // --- STEP 1: Normal Ingestion while Node 1 is Active ---
         Event e1 = sequencingService.ingest(StatusEvent.builder()
@@ -96,7 +96,7 @@ class NodeCrashFailoverIntegrationTest {
 
         // --- STEP 3: Active Trip updates continue into cluster while client is disconnected ---
         // Event 4: Location update
-        Event e4 = sequencingService.ingest(LocationEvent.builder()
+        sequencingService.ingest(LocationEvent.builder()
                 .topic(CRASH_TRIP_TOPIC)
                 .cabId("CAB-CRASH-1")
                 .latitude(12.9200)
@@ -104,7 +104,7 @@ class NodeCrashFailoverIntegrationTest {
                 .build());
 
         // Event 5: Critical Status update
-        Event e5 = sequencingService.ingest(StatusEvent.builder()
+        sequencingService.ingest(StatusEvent.builder()
                 .topic(CRASH_TRIP_TOPIC)
                 .tripId("TRIP-CRASH-RECOVERY")
                 .status("DELAYED_DUE_TO_TRAFFIC")
@@ -112,7 +112,7 @@ class NodeCrashFailoverIntegrationTest {
                 .build());
 
         // Event 6: Location update
-        Event e6 = sequencingService.ingest(LocationEvent.builder()
+        sequencingService.ingest(LocationEvent.builder()
                 .topic(CRASH_TRIP_TOPIC)
                 .cabId("CAB-CRASH-1")
                 .latitude(12.9250)
@@ -120,7 +120,7 @@ class NodeCrashFailoverIntegrationTest {
                 .build());
 
         // Event 7: Emergency SOS Alert! (Critical security event)
-        Event e7 = sequencingService.ingest(SOSEvent.builder()
+        sequencingService.ingest(SOSEvent.builder()
                 .topic(CRASH_TRIP_TOPIC)
                 .tripId("TRIP-CRASH-RECOVERY")
                 .cabId("CAB-CRASH-1")
@@ -131,7 +131,7 @@ class NodeCrashFailoverIntegrationTest {
                 .build());
 
         // Event 8: Status update
-        Event e8 = sequencingService.ingest(StatusEvent.builder()
+        sequencingService.ingest(StatusEvent.builder()
                 .topic(CRASH_TRIP_TOPIC)
                 .tripId("TRIP-CRASH-RECOVERY")
                 .status("CAB_ARRIVED")

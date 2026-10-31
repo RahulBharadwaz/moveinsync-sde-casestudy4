@@ -4,6 +4,7 @@ import com.moveinsync.tripfanout.model.Event;
 import com.moveinsync.tripfanout.websocket.TopicUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -32,9 +33,9 @@ public class GatewayQueueManager {
     private final Map<String, Set<String>> sessionTopics = new ConcurrentHashMap<>();
 
     // Optional listener invoked when an event is queued for a session
-    private BiConsumer<String, Event> onEventQueuedListener;
+    private @Nullable BiConsumer<String, Event> onEventQueuedListener;
 
-    public void setOnEventQueuedListener(BiConsumer<String, Event> listener) {
+    public void setOnEventQueuedListener(@Nullable BiConsumer<String, Event> listener) {
         this.onEventQueuedListener = listener;
     }
 
@@ -42,18 +43,25 @@ public class GatewayQueueManager {
      * Get or create an isolated queue for a client session.
      */
     public ClientSessionQueue getOrCreateQueue(String sessionId) {
+        Objects.requireNonNull(sessionId, "sessionId must not be null");
         return sessionQueues.computeIfAbsent(sessionId, id ->
                 new ClientSessionQueue(id, policy.getMaxCapacity(), policy.isConflationEnabled()));
     }
 
-    public Optional<ClientSessionQueue> getQueue(String sessionId) {
+    public Optional<ClientSessionQueue> getQueue(@Nullable String sessionId) {
+        if (sessionId == null) {
+            return Optional.empty();
+        }
         return Optional.ofNullable(sessionQueues.get(sessionId));
     }
 
     /**
      * Register a client session subscription to a topic destination.
      */
-    public void registerSubscription(String sessionId, String destination) {
+    public void registerSubscription(@Nullable String sessionId, @Nullable String destination) {
+        if (sessionId == null || destination == null) {
+            return;
+        }
         String canonicalTopic = TopicUtils.toCanonicalTopic(destination);
         getOrCreateQueue(sessionId);
 
@@ -67,7 +75,10 @@ public class GatewayQueueManager {
     /**
      * Unsubscribe a session from a topic.
      */
-    public void unregisterSubscription(String sessionId, String destination) {
+    public void unregisterSubscription(@Nullable String sessionId, @Nullable String destination) {
+        if (sessionId == null || destination == null) {
+            return;
+        }
         String canonicalTopic = TopicUtils.toCanonicalTopic(destination);
         Set<String> sessions = topicSubscriptions.get(canonicalTopic);
         if (sessions != null) {
@@ -85,7 +96,10 @@ public class GatewayQueueManager {
     /**
      * Cleanup session on disconnect.
      */
-    public void removeSession(String sessionId) {
+    public void removeSession(@Nullable String sessionId) {
+        if (sessionId == null) {
+            return;
+        }
         Set<String> topics = sessionTopics.remove(sessionId);
         if (topics != null) {
             for (String topic : topics) {
@@ -112,7 +126,7 @@ public class GatewayQueueManager {
      * @param event The event to fan out
      * @return Number of sessions event was enqueued to
      */
-    public int fanout(Event event) {
+    public int fanout(@Nullable Event event) {
         if (event == null || event.getTopic() == null) {
             return 0;
         }

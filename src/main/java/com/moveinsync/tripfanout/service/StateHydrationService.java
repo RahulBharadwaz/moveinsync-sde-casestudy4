@@ -63,7 +63,8 @@ public class StateHydrationService {
             return HydrationResult.snapshot(topic, lastSequenceNumber, currentSeq, getSnapshot(topic));
         }
 
-        long minSeq = minTuples.iterator().next().getScore().longValue();
+        Double minScore = minTuples.iterator().next().getScore();
+        long minSeq = (minScore != null) ? minScore.longValue() : 0L;
 
         // 4. Check if the next event the client needs (lastSequenceNumber + 1) has been evicted
         // i.e. lastSequenceNumber < minSeq - 1

@@ -11,6 +11,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
@@ -34,6 +35,8 @@ class WebSocketGatewaySecurityIntegrationTest {
     @MockitoBean
     private SimpMessagingTemplate messagingTemplate;
 
+    private final MessageChannel channel = (message, timeout) -> true;
+
     @Test
     @DisplayName("STOMP Pipeline: authenticates on CONNECT and allows authorized SUBSCRIBE to own trip")
     void testConnectAndAuthorizedSubscription() {
@@ -44,7 +47,7 @@ class WebSocketGatewaySecurityIntegrationTest {
         connectAccessor.setLeaveMutable(true);
         Message<byte[]> connectMsg = MessageBuilder.createMessage(new byte[0], connectAccessor.getMessageHeaders());
 
-        Message<?> processedConnect = securityInterceptor.preSend(connectMsg, null);
+        Message<?> processedConnect = securityInterceptor.preSend(connectMsg, channel);
         StompHeaderAccessor resultConnect = StompHeaderAccessor.wrap(processedConnect);
 
         assertThat(resultConnect.getUser()).isNotNull();
@@ -62,7 +65,7 @@ class WebSocketGatewaySecurityIntegrationTest {
         subAccessor.setLeaveMutable(true);
         Message<byte[]> subMsg = MessageBuilder.createMessage(new byte[0], subAccessor.getMessageHeaders());
 
-        Message<?> processedSub = securityInterceptor.preSend(subMsg, null);
+        Message<?> processedSub = securityInterceptor.preSend(subMsg, channel);
         assertThat(processedSub).isNotNull();
     }
 
@@ -83,7 +86,7 @@ class WebSocketGatewaySecurityIntegrationTest {
         subAccessor.setLeaveMutable(true);
         Message<byte[]> subMsg = MessageBuilder.createMessage(new byte[0], subAccessor.getMessageHeaders());
 
-        assertThatThrownBy(() -> securityInterceptor.preSend(subMsg, null))
+        assertThatThrownBy(() -> securityInterceptor.preSend(subMsg, channel))
                 .isInstanceOf(SubscriptionSecurityException.class)
                 .hasMessageContaining("Employees can only subscribe to their own trip");
     }
@@ -105,7 +108,7 @@ class WebSocketGatewaySecurityIntegrationTest {
         subAccessor.setLeaveMutable(true);
         Message<byte[]> subMsg = MessageBuilder.createMessage(new byte[0], subAccessor.getMessageHeaders());
 
-        assertThatThrownBy(() -> securityInterceptor.preSend(subMsg, null))
+        assertThatThrownBy(() -> securityInterceptor.preSend(subMsg, channel))
                 .isInstanceOf(SubscriptionSecurityException.class)
                 .hasMessageContaining("Tenant isolation violation");
     }
@@ -127,7 +130,7 @@ class WebSocketGatewaySecurityIntegrationTest {
         subAccessor.setLeaveMutable(true);
         Message<byte[]> subMsg = MessageBuilder.createMessage(new byte[0], subAccessor.getMessageHeaders());
 
-        assertThatThrownBy(() -> securityInterceptor.preSend(subMsg, null))
+        assertThatThrownBy(() -> securityInterceptor.preSend(subMsg, channel))
                 .isInstanceOf(SubscriptionSecurityException.class)
                 .hasMessageContaining("Office admins can only subscribe to their assigned office");
     }

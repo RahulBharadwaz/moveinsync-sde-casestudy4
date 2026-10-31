@@ -207,6 +207,7 @@ class PerformanceLoadBenchmarkTest {
         System.out.printf("  Total Elapsed Time          : %.3f seconds%n", totalDurationSec);
         System.out.printf("  Ingestion/Fanout Throughput : %,.2f events/sec (QPS)%n", throughputQps);
         System.out.printf("  Total Locations Conflated   : %,d conflated updates%n", totalConflated);
+        System.out.printf("  Total Delivered Drained     : %,d updates%n", totalDrained.get());
         System.out.println("--------------------------------------------------------------------------");
         System.out.printf("  Total SOS Alerts Emitted    : %,d alerts%n", sosEventCounter.get());
         System.out.printf("  Total SOS Delivered Samples : %,d samples%n", sortedLatencies.size());
@@ -225,6 +226,7 @@ class PerformanceLoadBenchmarkTest {
                 .isLessThan(2000.0);
 
         org.assertj.core.api.Assertions.assertThat(throughputQps).isGreaterThan(500.0);
+        org.assertj.core.api.Assertions.assertThat(totalDrained.get()).isPositive();
     }
 
     private double getPercentile(List<Double> sortedValues, double percentile) {
