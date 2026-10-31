@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
 @SpringBootTest
+@SuppressWarnings("null")
 class WebSocketGatewaySecurityIntegrationTest {
 
     @Autowired

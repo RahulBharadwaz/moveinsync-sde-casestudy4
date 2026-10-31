@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
+@SuppressWarnings("null")
 class RedisMessagingIntegrationTest {
 
     @Autowired

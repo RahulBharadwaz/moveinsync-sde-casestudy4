@@ -15,6 +15,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Advanced Track: System Failure Injection Test.
@@ -24,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * with ZERO loss of Status or SOS events, preserving strict sequence ordering.
  */
 @SpringBootTest
+@SuppressWarnings("null")
 class NodeCrashFailoverIntegrationTest {
 
     @Autowired
@@ -155,6 +157,7 @@ class NodeCrashFailoverIntegrationTest {
 
         // Client initiates state hydration with its last sequence number (3)
         HydrationResult hydration = hydrationService.hydrate(CRASH_TRIP_TOPIC, lastReceivedSeqOnClient);
+        assertNotNull(hydration);
 
         // --- STEP 5: Verify Flawless Resync ---
         assertThat(hydration.getType()).isEqualTo(HydrationResult.HydrationType.REPLAY);
@@ -162,6 +165,7 @@ class NodeCrashFailoverIntegrationTest {
         assertThat(hydration.getCurrentSequenceNumber()).isEqualTo(9L);
 
         List<Event> recoveredEvents = hydration.getMissedEvents();
+        assertNotNull(recoveredEvents);
         assertThat(recoveredEvents).hasSize(6);
 
         // 1. Verify exact strict ordering: 4, 5, 6, 7, 8, 9
@@ -174,6 +178,8 @@ class NodeCrashFailoverIntegrationTest {
                 .map(ev -> (StatusEvent) ev)
                 .toList();
         assertThat(recoveredStatusList).hasSize(2);
+        assertNotNull(recoveredStatusList.get(0));
+        assertNotNull(recoveredStatusList.get(1));
         assertThat(recoveredStatusList.get(0).getStatus()).isEqualTo("DELAYED_DUE_TO_TRAFFIC");
         assertThat(recoveredStatusList.get(1).getStatus()).isEqualTo("CAB_ARRIVED");
 
@@ -184,6 +190,7 @@ class NodeCrashFailoverIntegrationTest {
                 .toList();
         assertThat(recoveredSosList).hasSize(1);
         SOSEvent recoveredSos = recoveredSosList.get(0);
+        assertNotNull(recoveredSos);
         assertThat(recoveredSos.getSequenceNumber()).isEqualTo(7L);
         assertThat(recoveredSos.getAlertType()).isEqualTo("PANIC_BUTTON");
         assertThat(recoveredSos.getSeverity()).isEqualTo("CRITICAL");
@@ -200,20 +207,24 @@ class NodeCrashFailoverIntegrationTest {
                 .latitude(12.9350)
                 .longitude(77.5350)
                 .build());
+        assertNotNull(e10);
         gatewayNode2.fanout(e10);
 
         // When draining queue on Node 2:
         // SOS alert (Priority 0) is delivered first!
         Event firstDelivered = queueNode2.poll();
+        assertNotNull(firstDelivered);
         assertThat(firstDelivered).isInstanceOf(SOSEvent.class);
         assertThat(((SOSEvent) firstDelivered).getAlertType()).isEqualTo("PANIC_BUTTON");
 
         // Status events are delivered next in sequence order
         Event secondDelivered = queueNode2.poll();
+        assertNotNull(secondDelivered);
         assertThat(secondDelivered).isInstanceOf(StatusEvent.class);
         assertThat(((StatusEvent) secondDelivered).getStatus()).isEqualTo("DELAYED_DUE_TO_TRAFFIC");
 
         Event thirdDelivered = queueNode2.poll();
+        assertNotNull(thirdDelivered);
         assertThat(thirdDelivered).isInstanceOf(StatusEvent.class);
         assertThat(((StatusEvent) thirdDelivered).getStatus()).isEqualTo("CAB_ARRIVED");
     }

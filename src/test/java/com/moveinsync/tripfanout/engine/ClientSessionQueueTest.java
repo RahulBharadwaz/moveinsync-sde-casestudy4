@@ -11,7 +11,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+@SuppressWarnings("null")
 class ClientSessionQueueTest {
 
     @Test
@@ -111,15 +113,19 @@ class ClientSessionQueueTest {
 
         // Poll and verify only the latest location per cab is delivered
         Event first = queue.poll();
+        assertNotNull(first);
         assertThat(first).isInstanceOf(LocationEvent.class);
         LocationEvent loc1 = (LocationEvent) first;
+        assertNotNull(loc1);
         assertThat(loc1.getCabId()).isEqualTo("CAB-101");
         assertThat(loc1.getLatitude()).isEqualTo(13.0); // 12.0 + (10 * 0.1) = 13.0
         assertThat(loc1.getSequenceNumber()).isEqualTo(10L);
 
         Event second = queue.poll();
+        assertNotNull(second);
         assertThat(second).isInstanceOf(LocationEvent.class);
         LocationEvent loc2 = (LocationEvent) second;
+        assertNotNull(loc2);
         assertThat(loc2.getCabId()).isEqualTo("CAB-102");
         assertThat(loc2.getLatitude()).isEqualTo(13.5); // 13.0 + (5 * 0.1) = 13.5
         assertThat(loc2.getSequenceNumber()).isEqualTo(15L);
@@ -177,6 +183,8 @@ class ClientSessionQueueTest {
                 .map(ev -> (SOSEvent) ev)
                 .toList();
         assertThat(sosList).hasSize(2);
+        assertNotNull(sosList.get(0));
+        assertNotNull(sosList.get(1));
         assertThat(sosList.get(0).getEventId()).isEqualTo("sos-1");
         assertThat(sosList.get(1).getEventId()).isEqualTo("sos-2");
 
@@ -187,6 +195,7 @@ class ClientSessionQueueTest {
                 .toList();
         assertThat(statusList).hasSize(5);
         for (int i = 0; i < 5; i++) {
+            assertNotNull(statusList.get(i));
             assertThat(statusList.get(i).getStatus()).isEqualTo("STATUS_" + (i + 1));
         }
 

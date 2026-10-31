@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Proves that SOS delivery latency remains strictly under the 2.0-second SLA.
  */
 @SpringBootTest
+@SuppressWarnings("null")
 class PerformanceLoadBenchmarkTest {
 
     @Test

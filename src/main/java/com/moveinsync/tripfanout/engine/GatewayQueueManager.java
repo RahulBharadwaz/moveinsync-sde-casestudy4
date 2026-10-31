@@ -4,7 +4,6 @@ import com.moveinsync.tripfanout.model.Event;
 import com.moveinsync.tripfanout.websocket.TopicUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -33,9 +32,9 @@ public class GatewayQueueManager {
     private final Map<String, Set<String>> sessionTopics = new ConcurrentHashMap<>();
 
     // Optional listener invoked when an event is queued for a session
-    private @Nullable BiConsumer<String, Event> onEventQueuedListener;
+    private BiConsumer<String, Event> onEventQueuedListener;
 
-    public void setOnEventQueuedListener(@Nullable BiConsumer<String, Event> listener) {
+    public void setOnEventQueuedListener(BiConsumer<String, Event> listener) {
         this.onEventQueuedListener = listener;
     }
 
@@ -48,7 +47,7 @@ public class GatewayQueueManager {
                 new ClientSessionQueue(id, policy.getMaxCapacity(), policy.isConflationEnabled()));
     }
 
-    public Optional<ClientSessionQueue> getQueue(@Nullable String sessionId) {
+    public Optional<ClientSessionQueue> getQueue(String sessionId) {
         if (sessionId == null) {
             return Optional.empty();
         }
@@ -58,7 +57,7 @@ public class GatewayQueueManager {
     /**
      * Register a client session subscription to a topic destination.
      */
-    public void registerSubscription(@Nullable String sessionId, @Nullable String destination) {
+    public void registerSubscription(String sessionId, String destination) {
         if (sessionId == null || destination == null) {
             return;
         }
@@ -75,7 +74,7 @@ public class GatewayQueueManager {
     /**
      * Unsubscribe a session from a topic.
      */
-    public void unregisterSubscription(@Nullable String sessionId, @Nullable String destination) {
+    public void unregisterSubscription(String sessionId, String destination) {
         if (sessionId == null || destination == null) {
             return;
         }
@@ -96,7 +95,7 @@ public class GatewayQueueManager {
     /**
      * Cleanup session on disconnect.
      */
-    public void removeSession(@Nullable String sessionId) {
+    public void removeSession(String sessionId) {
         if (sessionId == null) {
             return;
         }
@@ -126,7 +125,7 @@ public class GatewayQueueManager {
      * @param event The event to fan out
      * @return Number of sessions event was enqueued to
      */
-    public int fanout(@Nullable Event event) {
+    public int fanout(Event event) {
         if (event == null || event.getTopic() == null) {
             return 0;
         }

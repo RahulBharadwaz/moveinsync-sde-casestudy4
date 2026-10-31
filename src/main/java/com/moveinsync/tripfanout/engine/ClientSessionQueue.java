@@ -4,7 +4,6 @@ import com.moveinsync.tripfanout.model.Event;
 import com.moveinsync.tripfanout.model.LocationEvent;
 import com.moveinsync.tripfanout.model.SOSEvent;
 import com.moveinsync.tripfanout.model.StatusEvent;
-import org.springframework.lang.Nullable;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -76,7 +75,7 @@ public class ClientSessionQueue {
      * @param event The event to enqueue
      * @return true if accepted/conflated
      */
-    public boolean enqueue(@Nullable Event event) {
+    public boolean enqueue(Event event) {
         if (event == null) {
             return false;
         }
@@ -153,7 +152,6 @@ public class ClientSessionQueue {
      *
      * @return Next prioritized event, or null if queue is empty
      */
-    @Nullable
     public Event poll() {
         // Priority Lane 1: SOS alerts always take precedence
         SOSEvent sos = sosLane.poll();
